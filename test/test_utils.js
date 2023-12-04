@@ -13,7 +13,7 @@ contract("TokenStaking", function (accounts) {
 		return assert.equal(got.toNumber(), 100_000, "The initial balance of mtk isn't 100_000 mtk")
 	})
 
-	it("shoudl transfer 100 mtk to accounts[1]", async function () {
+	it("should transfer 100 mtk to accounts[1]", async function () {
 		const mockToken = await MockToken.deployed()
 
 		await mockToken.transfer(accounts[1], 100)
