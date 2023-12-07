@@ -36,5 +36,34 @@ module.exports = {
                 }
             )
         ])
+    },
+    block: () => {
+        return new Promise((resolve, reject) => {
+            web3.currentProvider.send({
+                jsonrpc: "2.0",
+                method: "eth_blockNumber",
+                params: [],
+                id: new Date().getTime()
+            }, function (error, result) {
+                if (!error) {
+                    let blockNumber = parseInt(result.result, 16);
+                    web3.currentProvider.send({
+                        jsonrpc: "2.0",
+                        method: "eth_getBlockByNumber",
+                        params: [blockNumber, true],
+                        id: new Date().getTime()
+                    }, function (error, result) {
+                        if (!error) {
+                            let timestamp = parseInt(result.result.timestamp, 16);
+                            resolve(timestamp);
+                        } else {
+                            reject(error);
+                        }
+                    });
+                } else {
+                    reject(error);
+                }
+            });
+        });
     }
 }

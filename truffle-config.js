@@ -42,7 +42,7 @@
  */
 
 require('dotenv').config();
-const { PRIVATE_KEY, PROJECT_ID } = process.env;
+const { PRIVATE_KEY, PROJECT_ID, ETHERSCAN_KEY } = process.env;
 
 const HDWalletProvider = require('@truffle/hdwallet-provider');
 
@@ -138,4 +138,9 @@ module.exports = {
   //     }
   //   }
   // }
+
+  plugins: ['truffle-plugin-verify'],
+  api_keys: {
+    etherscan: ETHERSCAN_KEY
+  }
 };

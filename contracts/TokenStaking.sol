@@ -7,24 +7,31 @@ import "@openzeppelin/contracts/utils/Strings.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
 
-import "./Utils.sol";
-
 /**
  * @dev An smart contract for staking any ERC20 token
  */
-
 contract TokenStaking is Ownable, ReentrancyGuard {
+    struct StakeTransaction {
+        uint256 amount;
+        uint256 updatedAt;
+    }
+
     struct Staker {
-        uint256 stakedAmount;
-        uint256 startTime;
-        uint256 stakingPlan;
+        uint256 lastInteractionAt;
+        uint256 currentAmount;
+        uint256 reward;
+        StakeTransaction[] transactions;
     }
 
     IERC20 private _token;
     mapping(address => Staker) private _stakers;
+    address[] private _blacklist;
 
-    event Staked(address indexed user, uint256 amount, uint256 stakingPlan);
-    event Unstaked(address indexed user, uint256 amount, uint256 reward);
+    uint256 public minStakingAmount = 500 * (10 ** 18); // 500 tokens
+    uint256 public rollingDay = 7 * 24 * 60 * 60; // 7 Days
+
+    event Staked(address indexed user, uint256 amount);
+    event Unstaked(address indexed user, uint256 amount);
 
     /**
      * @dev Constructor sets the ERC20 token that can be used for staking
@@ -33,32 +40,82 @@ contract TokenStaking is Ownable, ReentrancyGuard {
         _token = IERC20(_tokenAddress);
     }
 
+    ///////////////////////// ADMIN /////////////////////////
     /**
-     * @dev stake function will be used to stake tokens
-     * @param _amount | the amount of token to be transfered
-     * @param _stakingPlan | the staking plan index
+     * @dev Sets rolling day that is used to calculate average
+     * @param _rollingDay | the rolling day in seconds e.g. 7 * 24 * 60 * 60 = 604800 seconds
      */
-    function stake(
-        uint256 _amount,
-        uint256 _stakingPlan
-    ) external nonReentrant {
-        // Checking the staking amount
-        require(_amount > 0, "Amount must be greator than zero.");
-
-        // Checking to see if the chosen staking plan is valid
+    function setRollingDay(uint256 _rollingDay) external onlyOwner {
         require(
-            Utils.isStakingPlanValid(_stakingPlan),
-            "Staking plan number isn't valid."
+            rollingDay > 0,
+            "Rolling day couldn't be less that or equal to zero"
         );
+
+        rollingDay = _rollingDay;
+    }
+
+    /**
+     * @dev Sets the minimum amount a staker is allowed to satke
+     * @param _minStakingAmount | the amount in token unit e.g. 500 * 10**18
+     */
+    function setMinStakingAmount(uint256 _minStakingAmount) external onlyOwner {
+        minStakingAmount = _minStakingAmount;
+    }
+
+    /**
+     * @dev Adds an address to blacklist
+     * @param _address | the address to be added to blacklist
+     */
+    function addToBlacklist(address _address) external onlyOwner {
+        if (_isBlacklist(_address)) {
+            return;
+        }
+
+        _blacklist.push(_address);
+    }
+
+    /**
+     * @dev Adds an address to blacklist
+     * @param _address | the address to be added to blacklist
+     */
+    function removeFromBlacklist(address _address) external onlyOwner {
+        if (!_isBlacklist(_address)) {
+            return;
+        }
+
+        for (uint256 i = 0; i < _blacklist.length; i++) {
+            if (_blacklist[i] == _address) {
+                delete _blacklist[i];
+
+                break;
+            }
+        }
+    }
+
+    /**
+     * @dev Get all blacklisted addresses
+     */
+    function getBlacklist() external view onlyOwner returns (address[] memory) {
+        return _blacklist;
+    }
+
+    ///////////////////////// USER /////////////////////////
+    /**
+     * @dev Stakes tokens & transfers them to the contract
+     * @param _amount | the amount of tokens to be staked
+     */
+    function stake(uint256 _amount) external nonReentrant {
+        // Checking the staking amount
+        require(
+            _amount >= minStakingAmount,
+            "Amount must be greator than min staking amount."
+        );
+
+        // Checking for blacklist
+        require(!_isBlacklist(_msgSender()), "The address is in blacklist");
 
         // Get staker from storage
         Staker storage _staker = _getStaker(_msgSender());
-
-        // Check to see if the staker is already staking or not
-        require(
-            _staker.stakedAmount == 0,
-            "The staker is staking already, restaking isn't allowed unless unstaked first."
-        );
 
         // Check to see if the allowance mechanism is enabled by the staker
         require(
@@ -73,180 +130,196 @@ contract TokenStaking is Ownable, ReentrancyGuard {
         );
 
         // Fill up staker information
-        // Note that we save the plan index, not the duration or anything else
-        _staker.startTime = block.timestamp;
-        _staker.stakingPlan = _stakingPlan;
-        _staker.stakedAmount = _amount;
+        _staker.lastInteractionAt = block.timestamp;
+        _staker.currentAmount += _amount;
+
+        StakeTransaction memory txn;
+        txn.updatedAt = block.timestamp;
+        txn.amount = _staker.currentAmount;
+
+        _staker.transactions.push(txn);
 
         // Emit staked event to announce successfull stake
-        emit Staked(_msgSender(), _amount, _stakingPlan);
+        emit Staked(_msgSender(), _amount);
     }
 
     /**
-     * @dev This function will be called to withdraw the staked amount and possible reward
+     * @dev Withdraws specified amount of staked amount, transfer tokens to sender
+     * @param _amount | the amount of token to withdraw in token unit e.g. 200 * 10**18
      */
-    function unstake() external nonReentrant {
+    function unstake(uint256 _amount) external nonReentrant {
+        // Checking the staking amount
+        require(_amount > 0, "Amount must be greator than zero.");
+
         // Get the staker from storage
         Staker storage _staker = _getStaker(_msgSender());
 
         // Check to see if staker amount is non-zero
         require(
-            _staker.stakedAmount > 0,
-            "Staker hasn't staked any tokens or unstaked already."
+            _staker.currentAmount >= _amount,
+            "Staker can't unstake more that current staked amount"
         );
 
-        uint256 _minStakingDuration = Utils.convertPlanToDuration(
-            _staker.stakingPlan
-        );
-        uint256 _timeElapsed = Utils.calculateTimeElapsed(
-            block.timestamp,
-            _staker.startTime
-        );
+        _staker.lastInteractionAt = block.timestamp;
+        _staker.currentAmount -= _amount;
 
-        string memory _blockTimeStampStr = Strings.toString(block.timestamp);
-        string memory _startTimeStr = Strings.toString(_staker.startTime);
-        string memory _timeElapsedStr = Strings.toString(_timeElapsed);
-        string memory _minStakingDurationStr = Strings.toString(
-            _minStakingDuration
-        );
+        StakeTransaction memory txn;
+        txn.updatedAt = block.timestamp;
+        txn.amount = _staker.currentAmount;
 
-        // Check to see if the minimum duration is passed
-        require(
-            _timeElapsed >= _minStakingDuration,
-            string(
-                abi.encodePacked(
-                    "Staking duration isn't yet passed, elapsed= ",
-                    _timeElapsedStr,
-                    ", needed= ",
-                    _minStakingDurationStr,
-                    ", block timestamp= ",
-                    _blockTimeStampStr,
-                    ", start time= ",
-                    _startTimeStr
-                )
-            )
-        );
-
-        // We need to copy _staker.stakedAmount to a variable
-        // for calulating total amount and event emit
-        uint256 _stakedAmount = _staker.stakedAmount;
-
-        uint256 _rewardAmount = Utils.calculateReward(
-            _timeElapsed,
-            _staker.stakedAmount
-        );
-
-        // Safely setting stakedAmount of staker to zero
-        _staker.stakedAmount = 0;
-
-        // Calculating total amount
-        uint256 _totalAmount = _stakedAmount + _rewardAmount;
+        _staker.transactions.push(txn);
 
         // Check to see if transfer is successfull
         require(
-            _token.transfer(_msgSender(), _totalAmount),
+            _token.transfer(_msgSender(), _amount),
             "Unstaking failed. Couldn't transfer funds to the sender."
         );
 
-        emit Unstaked(_msgSender(), _stakedAmount, _rewardAmount);
+        emit Unstaked(_msgSender(), _amount);
     }
 
     /**
-     * @dev Get the sender staked amount
+     * @dev Gets sender current staked amount
      */
     function getMyStakedAmount() external view returns (uint256) {
         Staker storage _staker = _getStaker(_msgSender());
 
-        return _staker.stakedAmount;
+        return _staker.currentAmount;
     }
 
     /**
-     * @dev Get the sender staking plan index
-     */
-    function getMyStakingPlan() external view returns (uint256) {
-        Staker storage _staker = _getStaker(_msgSender());
-
-        return _staker.stakingPlan;
-    }
-
-    /**
-     * @dev Get the staker start timestamp
+     * @dev Gets staker start timestamp
      */
     function getMyStakingStartTime() external view returns (uint256) {
-        Staker storage _staker = _getStaker(_msgSender());
-
-        return _staker.startTime;
+        uint256 startTime = _getStakerStartTime(_msgSender());
+        return startTime;
     }
 
     /**
-     * @dev Get the staker remaining duration to pass the minimum required staking duration
-     */
-    function getMyStakingRemainingTime() external view returns (uint256) {
-        Staker storage _staker = _getStaker(_msgSender());
-
-        uint256 _duration = Utils.convertPlanToDuration(_staker.stakingPlan);
-
-        uint256 _timeElapsed = Utils.calculateTimeElapsed(
-            block.timestamp,
-            _staker.startTime
-        );
-
-        if (_timeElapsed >= _duration) {
-            return 0;
-        }
-
-        return (_duration - _timeElapsed);
-    }
-
-    /**
-     * @dev Calculate required staking duration is seconds
-     */
-    function getMyStakingMinDuration() external view returns (uint256) {
-        Staker storage _staker = _getStaker(_msgSender());
-
-        uint256 _duration = Utils.convertPlanToDuration(_staker.stakingPlan);
-
-        return _duration;
-    }
-
-    /**
-     * @dev Get the staker staking time elapsed in seconds
+     * @dev Gets staker staking time elapsed in seconds
      */
     function getMyStakingTimeElapsed() external view returns (uint256) {
-        Staker storage _staker = _getStaker(_msgSender());
+        uint256 startTime = _getStakerStartTime(_msgSender());
 
-        uint256 _timeElapsed = Utils.calculateTimeElapsed(
-            block.timestamp,
-            _staker.startTime
-        );
-
-        return _timeElapsed;
+        uint256 timeElapsed = block.timestamp - startTime;
+        return timeElapsed;
     }
 
     /**
      * @dev Calculate the staker profit from staking token
      */
     function getMyStakingProfit() external view returns (uint256) {
-        Staker storage _staker = _getStaker(_msgSender());
+        return 0;
+    }
 
-        uint256 _minStakingDuration = Utils.convertPlanToDuration(
-            _staker.stakingPlan
-        );
-        uint256 _timeElapsed = Utils.calculateTimeElapsed(
-            block.timestamp,
-            _staker.startTime
-        );
+    /**
+     * @dev Calculate staker daily average
+     * @param since | the time to start calculating average from
+     */
+    function getMyAverage(uint256 since) external view returns (uint256) {
+        return _getAverage(_msgSender(), since);
+    }
 
-        if (_timeElapsed >= _minStakingDuration) {
-            uint256 _rewardAmount = Utils.calculateReward(
-                _timeElapsed,
-                _staker.stakedAmount
-            );
+    /**
+     * @dev Get staker staked amont at specified time
+     * @param at | the time t return staked amount at
+     */
+    function getMyStakedAmount(uint256 at) external view returns (uint256) {
+        return _getAmountAt(_msgSender(), at);
+    }
 
-            return _rewardAmount;
+    ///////////////////////// PRIVATE /////////////////////////
+    /**
+     * @dev Gets staker start time
+     * @param _stakerAddress | the address of staker
+     */
+    function _getStakerStartTime(
+        address _stakerAddress
+    ) private view returns (uint256) {
+        Staker storage _staker = _getStaker(_stakerAddress);
+
+        uint256 startTime = 0;
+        if (_staker.transactions.length != 0) {
+            StakeTransaction memory txn = _staker.transactions[0];
+            startTime = txn.updatedAt;
         }
 
-        return 0;
+        return startTime;
+    }
+
+    /**
+     * @dev Checks if an address is blacklisted or not
+     * @param _address | the address to check
+     */
+    function _isBlacklist(address _address) private view returns (bool) {
+        for (uint256 i = 0; i < _blacklist.length; i++) {
+            if (_blacklist[i] == _address) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * @dev Get the staked amount of a staker at a specified time
+     */
+    function _getAmountAt(
+        address _stakerAddress,
+        uint256 at
+    ) private view returns (uint256) {
+        Staker storage _staker = _getStaker(_stakerAddress);
+
+        uint256 amount = 0;
+        for (uint256 i = 0; i < _staker.transactions.length; i++) {
+            StakeTransaction memory txn = _staker.transactions[i];
+
+            if (txn.updatedAt <= at) {
+                amount = txn.amount;
+            } else {
+                break;
+            }
+        }
+
+        return amount;
+    }
+
+    /**
+     * @dev Calculating average amount from a specified time til now
+     */
+    function _getAverage(
+        address _stakerAddress,
+        uint256 since
+    ) private view returns (uint256) {
+        Staker storage _staker = _getStaker(_stakerAddress);
+
+        uint256 startBalance = _getAmountAt(_stakerAddress, since);
+        if (startBalance == 0) {
+            return 0;
+        }
+
+        uint256 lastUpdatedAt = since;
+        uint256 lastAmount = startBalance;
+        uint256 sum = 0;
+
+        for (uint256 i = 0; i < _staker.transactions.length; i++) {
+            StakeTransaction memory txn = _staker.transactions[i];
+            if (txn.updatedAt <= since) {
+                continue;
+            }
+
+            uint256 period = txn.updatedAt - lastUpdatedAt;
+            sum += lastAmount * (period / 86400);
+
+            lastUpdatedAt = txn.updatedAt;
+            lastAmount = txn.amount;
+        }
+
+        uint256 remainedPeriod = block.timestamp - lastUpdatedAt;
+        sum += lastAmount * (remainedPeriod / 86400);
+
+        uint256 average = sum / ((block.timestamp - since) / 86400);
+        return average;
     }
 
     /**

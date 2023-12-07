@@ -2,51 +2,6 @@
 // Website:  https://www.BitToken.info/
 pragma solidity ^0.8.11;
 
-interface IERC20 {
-    function totalSupply() external view returns (uint256);
-
-    function balanceOf(address account) external view returns (uint256);
-
-    function transfer(address to, uint256 amount) external returns (bool);
-
-    function allowance(
-        address owner,
-        address spender
-    ) external view returns (uint256);
-
-    function approve(address spender, uint256 amount) external returns (bool);
-
-    function transferFrom(
-        address from,
-        address to,
-        uint256 amount
-    ) external returns (bool);
-
-    event Transfer(address indexed from, address indexed to, uint256 value);
-    event Approval(
-        address indexed owner,
-        address indexed spender,
-        uint256 value
-    );
-}
-
-interface IERC20Metadata is IERC20 {
-    function name() external view returns (string memory);
-
-    function symbol() external view returns (string memory);
-
-    function decimals() external view returns (uint8);
-}
-
-abstract contract Context {
-    function _msgSender() internal view virtual returns (address) {
-        return msg.sender;
-    }
-
-    function _msgData() internal view virtual returns (bytes calldata) {
-        return msg.data;
-    }
-}
 
 contract ERC20 is Context, IERC20, IERC20Metadata {
     mapping(address => uint256) internal _bals;
@@ -588,46 +543,6 @@ interface IUniswapV2Router02 is IUniswapV2Router01 {
     ) external view returns (uint[] memory amounts);
 }
 
-abstract contract Ownable is Context {
-    address private _owner;
-
-    event OwnershipTransferred(
-        address indexed previousOwner,
-        address indexed newOwner
-    );
-
-    constructor() {
-        _transferOwnership(_msgSender());
-    }
-
-    function owner() public view virtual returns (address) {
-        return _owner;
-    }
-
-    modifier onlyOwner() {
-        require(owner() == _msgSender(), "Ownable: caller is not the owner");
-        _;
-    }
-
-    function renounceOwnership() public virtual onlyOwner {
-        _transferOwnership(address(0));
-    }
-
-    function transferOwnership(address newOwner) public virtual onlyOwner {
-        require(
-            newOwner != address(0),
-            "Ownable: new owner is the zero address"
-        );
-        _transferOwnership(newOwner);
-    }
-
-    function _transferOwnership(address newOwner) internal virtual {
-        address oldOwner = _owner;
-        _owner = newOwner;
-        emit OwnershipTransferred(oldOwner, newOwner);
-    }
-}
-
 library SafeMath {
     function tryAdd(
         uint256 a,
@@ -739,6 +654,10 @@ library SafeMath {
     }
 }
 
+import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
+import "@openzeppelin/contracts/utils/Strings.sol";
+import "@openzeppelin/contracts/access/Ownable.sol";
 /*
  * @dev Contract starts here
  */
@@ -756,7 +675,7 @@ contract BitToken is ERC20, Ownable {
     address private _resevoirWallet;
     address private _marketingWallet;
     address private _LPAddress;
-    uint256 private swapAt = 25000 * (10 ** decimals());
+    uint256 private swapAt = 250 * (10 ** decimals());
 
     uint256 public maxTransactionAmountOnPurchase;
     uint256 public maxTransactionAmountOnSale;
@@ -804,7 +723,6 @@ contract BitToken is ERC20, Ownable {
     constructor(
         string memory name,
         string memory symbol,
-        uint256 _percent,
         address _utility,
         bool _utilityActive,
         uint256 _buyFee,
@@ -814,14 +732,13 @@ contract BitToken is ERC20, Ownable {
             0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D
         );
 
-        addSwapTreshold(_percent);
         addUtility(_utility, _utilityActive);
         updateTradingFees(_buyFee, _sellFee);
 
         _isExcludedMaxTransactionAmount[address(_uniswapV2Router)] = true;
         uniswapV2Router = _uniswapV2Router;
 
-        uint256 totalSupply = 100000000 * 1e18;
+        uint256 totalSupply = 1_000_000 * 1e18;
         sellStatus = true;
         buyStatus = true;
 
@@ -833,7 +750,7 @@ contract BitToken is ERC20, Ownable {
         /*
          * @dev Set the limits (maxBuy, maxSell, maxWallet).
          */
-        updateLimits(1000001, 1000001, 1000001);
+        updateLimits(10_001, 10_001, 10_001);
 
         // exclude from paying fees or having max transaction amount
         excludeFromFees(owner(), true);
@@ -851,18 +768,18 @@ contract BitToken is ERC20, Ownable {
         _isExcludedMaxTransactionAmount[_resevoirWallet] = true;
         _isExcludedMaxTransactionAmount[_marketingWallet] = true;
         _isExcludedMaxTransactionAmount[_LPAddress] = true;
-        
-        _mint(address(this), totalSupply);
+
+        // _mint(address(this), totalSupply);
         /**************************************************************** */
         /**********************************WARNING ********************** */
         ///////// REMOVE THESE LINES ////////////////////
         //////// Replace the line below with the line above in prduction ///
-        // _mint(msg.sender, totalSupply);
-        // tradingLive = true;
+        _mint(msg.sender, totalSupply);
+        tradingLive = true;
     }
 
     function addSwapTreshold(uint256 _percent) public onlyOwner {
-        swapAt = (totalSupply() * _percent) / 1000000;
+        swapAt = (totalSupply() * _percent) / 10000;
         // Percentage of supply
     }
 
