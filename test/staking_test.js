@@ -198,10 +198,7 @@ contract("Token staking tests", function (accounts) {
 	it("should return zero as daily average due to not enough period of staking", async function () {
 		const stakingContract = await StakingContract.deployed();
 
-		const ts = await block();
-		const since = ts - (7 * 86400);
-
-		const got = stakingContract.getMyAverage(since, { from: accounts[1] });
+		const got = stakingContract.getMyAverage({ from: accounts[1] });
 		const expected = ethers.utils.parseUnits('0', 18);
 
 		assert(got.toString(), expected.toString(), "Couldn't get zero for average.");
@@ -221,10 +218,7 @@ contract("Token staking tests", function (accounts) {
 	it("should calculate staking daily average", async function () {
 		const stakingContract = await StakingContract.deployed();
 
-		const ts = await block();
-		const since = ts - (7 * 86400);
-
-		const got = await stakingContract.getMyAverage(since, { from: accounts[1] });
+		const got = await stakingContract.getMyAverage({ from: accounts[1] });
 		const expected = BigInt('385714285714285714285');
 
 		assert.equal(got.toString(), expected.toString(), "Couldn't calculate average correctly");
@@ -261,10 +255,7 @@ contract("Token staking tests", function (accounts) {
 	it("should calculate staking daily average", async function () {
 		const stakingContract = await StakingContract.deployed();
 
-		const ts = await block();
-		const since = ts - (7 * 86400);
-
-		const got = await stakingContract.getMyAverage(since, { from: accounts[2] });
+		const got = await stakingContract.getMyAverage({ from: accounts[2] });
 		const expected = ethers.utils.parseUnits('1000', 18);
 
 		assert.equal(got.toString(), expected.toString(), "Couldn't calculate average correctly");
@@ -332,225 +323,56 @@ contract("Token staking tests", function (accounts) {
 		assert.equal(result.indexOf(accounts[1]), -1, "Couldn't remove address to blacklist");
 	});
 
-	// it("should return balance of accounts[1] as zero", async function () {
-	// 	const mockToken = await BitToken.deployed()
+	it("should add reward", async function () {
+		const mockToken = await BitToken.deployed();
+		const stakingContract = await StakingContract.deployed();
 
-	// 	let got = await mockToken.balanceOf(accounts[1])
+		const oldBalance = await mockToken.balanceOf(stakingContract.address);
 
-	// 	assert.equal(got.toNumber(), 0, "The accounts[1] isn't zero")
-	// })
+		const amount = ethers.utils.parseUnits('500', 18);
+		await mockToken.approve(stakingContract.address, amount);
+		await stakingContract.addReward(amount);
 
-	// it("should get staked amount as 100", async function () {
-	// 	const stakingContract = await StakingContract.deployed()
+		const newBalance = await mockToken.balanceOf(stakingContract.address);
 
-	// 	let got = await stakingContract.getMyStakedAmount({ from: accounts[1] })
+		const got = await stakingContract.rewardTreasury();
+		const expected = amount;
 
-	// 	assert.equal(got, 100, "Couldn't get staked amount correctly")
-	// })
+		assert.equal(newBalance.toString(), amount.add(oldBalance.toString()).toString(), "Token balance of staking contract isn't increased.")
+		assert.equal(got.toString(), expected.toString(), "Reward treasury isn't increased successfully");
+	});
 
-	// it("should get staking plan index as 1", async function () {
-	// 	const stakingContract = await StakingContract.deployed()
+	it("should calculate total averages", async function () {
+		const stakingContract = await StakingContract.deployed();
 
-	// 	let got = await stakingContract.getMyStakingPlan({ from: accounts[1] })
+		const got = await stakingContract.getTotalAverages({ from: accounts[0] });
 
-	// 	assert.equal(got, 1, "Couldn't't get staking plan index correctly")
-	// })
+		const expected = ethers.utils.parseUnits('1500', 18);
 
-	// it("should get min stake duration as 60s", async function () {
-	// 	const stakingContract = await StakingContract.deployed()
+		assert.equal(got.toString(), expected.toString(), "Couldn't calculate total averages");
+	});
 
-	// 	let got = await stakingContract.getMyStakingMinDuration({ from: accounts[1] })
+	it("should distribute reward", async function () {
+		const stakingContract = await StakingContract.deployed();
 
-	// 	assert.equal(got, 60, "Couldn't get min staking duration correctly")
-	// })
+		await stakingContract.distributeReward({ from: accounts[0] });
 
-	// it("should get staking start time", async function () {
-	// 	const stakingContract = await StakingContract.deployed()
+		const got1 = await stakingContract.getMyStakingProfit({ from: accounts[1] });
+		const got2 = await stakingContract.getMyStakingProfit({ from: accounts[2] });
 
-	// 	let block = await web3.eth.getBlock("latest")
+		assert.equal(got1.toString(), '166666666666666666666');
+		assert.equal(got2.toString(), '333333333333333333333');
+	});
 
-	// 	let got = await stakingContract.getMyStakingStartTime({ from: accounts[1] })
-	// 	let expected = block.timestamp
+	it("should claim reward", async function () {
+		const mockToken = await BitToken.deployed();
+		const stakingContract = await StakingContract.deployed();
 
-	// 	assert.equal(got.toNumber(), expected, "Coudn't get staking start time correctly")
-	// })
 
-	// it("should get min stake remaning time at most 30s", async function () {
-	// 	const stakingContract = await StakingContract.deployed()
+		const amount = BigInt('166666666666666666666');
+		await stakingContract.claimReward(amount, { from: accounts[1] });
 
-	// 	await advanceInTime(30)
-	// 	await mine()
-
-	// 	let got = await stakingContract.getMyStakingRemainingTime({ from: accounts[1] })
-
-	// 	assert.isAtMost(got.toNumber(), 30, "Couldn't get staking remaning time as 30s")
-	// })
-
-	// it("should abort unstaking because the staking time isn't passed yet", async function () {
-	// 	const stakingContract = await StakingContract.deployed()
-
-	// 	catchRevert(stakingContract.unstake({ from: accounts[1] }))
-	// })
-
-	// it("should get min stake remaning time equal to 0s", async function () {
-	// 	const stakingContract = await StakingContract.deployed()
-
-	// 	await advanceInTime(60)
-	// 	await mine()
-
-	// 	let got = await stakingContract.getMyStakingRemainingTime({ from: accounts[1] })
-
-	// 	assert.equal(got.toNumber(), 0, "Couldn't get staking remaning time as 0s")
-	// })
-
-	// it("should unstake without any errors and send back 100 mtk + 1 mtk as reward", async function () {
-	// 	const mockToken = await BitToken.deployed()
-	// 	const stakingContract = await StakingContract.deployed()
-
-	// 	await stakingContract.unstake({ from: accounts[1] })
-
-	// 	let got = await mockToken.balanceOf(accounts[1])
-
-	// 	assert.equal(got.toNumber(), 101, "Unstake isn't sent back expected value")
-	// })
-
-	// it("should returns the balance of staking contract 999 mtk", async function () {
-	// 	const mockToken = await BitToken.deployed()
-	// 	const stakingContract = await StakingContract.deployed()
-
-	// 	let got = await mockToken.balanceOf(stakingContract.address)
-
-	// 	assert.equal(got.toNumber(), 999, "Balance of staking contract isn't 999 mtk")
-	// })
-
-	// it("should transfer 200 mtk to accounts[2]", async function () {
-	// 	const mockToken = await BitToken.deployed()
-
-	// 	await mockToken.transfer(accounts[2], 200, { from: accounts[0] })
-
-	// 	let got = await mockToken.balanceOf(accounts[2])
-
-	// 	assert.equal(got.toNumber(), 200, "Balance of accounts[2] isn't 200 mtk")
-	// })
-
-	// it("should allow to transfer 200 mtk from accounts[2] to staking contract", async function () {
-	// 	const mockToken = await BitToken.deployed()
-	// 	const stakingContract = await StakingContract.deployed()
-
-	// 	await mockToken.approve(stakingContract.address, 200, { from: accounts[2] })
-
-	// 	let got = await mockToken.allowance(accounts[2], stakingContract.address)
-
-	// 	assert.equal(got, 200, "Allowance isn't set correctly from accounts[2] to staking contract as 200 mtk")
-	// })
-
-	// it("should stake 150 mtk for accounts[2] and staking plan 2", async function () {
-	// 	const mockToken = await BitToken.deployed()
-	// 	const stakingContract = await StakingContract.deployed()
-
-	// 	await stakingContract.stake(150, 2, { from: accounts[2] })
-
-	// 	let got = await mockToken.balanceOf(stakingContract.address)
-
-	// 	assert.equal(got.toNumber(), 1_149, "Staking isn't working correctly for accounts[2]")
-	// })
-
-	// it("should revert staking for accounts[2] because it isn't unstaked yet", async function () {
-	// 	const stakingContract = await StakingContract.deployed()
-
-	// 	catchRevert(stakingContract.stake(50, 2, { from: accounts[2] }))
-	// })
-
-	// it("should get remaning time at most 60s for accounts[2]", async function () {
-	// 	const stakingContract = await StakingContract.deployed()
-
-
-	// 	await advanceInTime(4 * 60)
-	// 	await mine()
-
-	// 	let got = await stakingContract.getMyStakingRemainingTime({ from: accounts[2] })
-
-	// 	assert.isAtMost(got.toNumber(), 60, "Remaning time isn't calculated correctly")
-	// })
-
-	// it("shoud revert unstaking of accounts[2] because time hasn't passed yet", async function () {
-	// 	const stakingContract = await StakingContract.deployed()
-
-	// 	catchRevert(stakingContract.unstake())
-	// })
-
-	// it("should unstake accounts[2] staking and return back reward of 7 mtk", async function () {
-	// 	const mockToken = await BitToken.deployed()
-	// 	const stakingContract = await StakingContract.deployed()
-
-	// 	await advanceInTime(60)
-	// 	await mine()
-
-	// 	await stakingContract.unstake({ from: accounts[2] })
-
-	// 	let got = await mockToken.balanceOf(accounts[2])
-
-	// 	assert.equal(got.toNumber(), 207, "Reward of 7 mtk isn't sent to accounts[2]")
-	// })
-
-	// it("should return balance of staking contract 992 mtk", async function () {
-	// 	const mockToken = await BitToken.deployed()
-	// 	const stakingContract = await StakingContract.deployed()
-
-	// 	let got = await mockToken.balanceOf(stakingContract.address)
-
-	// 	assert.equal(got.toNumber(), 992, "Balance of staking contract isn't 992 mtk")
-	// })
-
-	// it("should stake 50 mtk for account[2] and plan index 3", async function () {
-	// 	const mockToken = await BitToken.deployed()
-	// 	const stakingContract = await StakingContract.deployed()
-
-	// 	await stakingContract.stake(50, 3, { from: accounts[2] })
-
-	// 	let got = await mockToken.balanceOf(stakingContract.address)
-
-	// 	assert.equal(got.toNumber(), 1_042, "Balance of staking contract isn't 1_042 mtk")
-	// })
-
-	// it("should return remaining time of staking for accounts[2] at most 30s", async function () {
-	// 	const stakingContract = await StakingContract.deployed()
-
-	// 	await advanceInTime(570)
-	// 	await mine()
-
-	// 	let got = await stakingContract.getMyStakingRemainingTime({ from: accounts[2] })
-
-	// 	assert.isAtMost(got.toNumber(), 30, "Remaning time for accounts[2] isn't 30s at most")
-	// })
-
-	// it("shoudn't allow accounts[2] to unstake", async function () {
-	// 	const stakingContract = await StakingContract.deployed()
-
-	// 	catchRevert(stakingContract.unstake({ from: accounts[2] }))
-	// })
-
-	// it("should unstake accounts[2] staking and give 5 mtk as reward", async function () {
-	// 	const mockToken = await BitToken.deployed()
-	// 	const stakingContract = await StakingContract.deployed()
-
-	// 	await advanceInTime(100)
-	// 	await mine()
-
-	// 	await stakingContract.unstake({ from: accounts[2] })
-
-	// 	let got = await mockToken.balanceOf(accounts[2])
-
-	// 	assert.equal(got.toNumber(), 212, "Balance of accounts[2] isn't 212 mtk")
-	// })
-
-	// it("should return balance of staking contract 988 mtk", async function () {
-	// 	const mockToken = await BitToken.deployed()
-	// 	const stakingContract = await StakingContract.deployed()
-
-	// 	let got = await mockToken.balanceOf(stakingContract.address)
-
-	// 	assert.equal(got.toNumber(), 987, "Balance of staking contract isn't 988 mtk")
-	// })
-
+		const got = await mockToken.balanceOf(accounts[1]);
+		assert.equal(got.toString(), '666666666666666666666');
+	});
 });

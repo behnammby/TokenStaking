@@ -750,7 +750,8 @@ contract BitToken is ERC20, Ownable {
         /*
          * @dev Set the limits (maxBuy, maxSell, maxWallet).
          */
-        updateLimits(10_001, 10_001, 10_001);
+        // updateLimits(10_001, 10_001, 10_001);
+        removeLimits();
 
         // exclude from paying fees or having max transaction amount
         excludeFromFees(owner(), true);
