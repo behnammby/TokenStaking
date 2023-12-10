@@ -18,20 +18,23 @@ contract TokenStaking is Ownable, ReentrancyGuard {
 
     struct Staker {
         uint256 holderIndex;
-        uint256 lastInteractionAt;
+        uint256 startTime;
         uint256 currentAmount;
         uint256 reward;
+        uint256 totalReward;
+        bool isValid;
         StakeTransaction[] transactions;
     }
 
     IERC20 private _token;
 
     uint256 public rewardTreasury = 0;
+    uint256 public totalReward = 0;
     uint256 public totalLocked = 0;
     uint256 public totalClaimed = 0;
 
     address[] private _blacklist;
-    address[] private _holders;
+    address[] private _stakersIndex;
 
     mapping(address => Staker) private _stakers;
 
@@ -51,7 +54,7 @@ contract TokenStaking is Ownable, ReentrancyGuard {
         _token = IERC20(_tokenAddress);
 
         // This line is added to avoid holder index default value hole
-        _holders.push(address(0x0));
+        _stakersIndex.push(address(0x0));
     }
 
     ///////////////////////// ADMIN /////////////////////////
@@ -62,7 +65,7 @@ contract TokenStaking is Ownable, ReentrancyGuard {
     function setRollingDay(uint256 _rollingDay) external onlyOwner {
         require(
             rollingDay > 0,
-            "Rolling day couldn't be less that or equal to zero"
+            "Rolling day couldn't be less than or equal to zero"
         );
 
         rollingDay = _rollingDay;
@@ -131,17 +134,24 @@ contract TokenStaking is Ownable, ReentrancyGuard {
         );
 
         rewardTreasury += _amount;
+        totalReward += _amount;
 
         emit RewardAdded(_amount);
     }
 
-    function getTotalAverages() external view onlyOwner returns (uint256) {
+    /**
+     * @dev Calculates total rates of eligible stakers
+     */
+    function getTotalRates() external view onlyOwner returns (uint256) {
         uint256 _since = block.timestamp - rollingDay;
-        uint256 totalAverages = _calculateTotalAverages(_since);
+        uint256 _totalrates = _calculateTotalRates(_since);
 
-        return totalAverages;
+        return _totalrates;
     }
 
+    /**
+     * @dev Distributes rewards collected in reward treasury between eligible stakers
+     */
     function distributeReward() external onlyOwner {
         uint256 _since = block.timestamp - rollingDay;
         _distributeReward(_since);
@@ -153,17 +163,8 @@ contract TokenStaking is Ownable, ReentrancyGuard {
      * @param _amount | the amount of tokens to be staked
      */
     function stake(uint256 _amount) external nonReentrant {
-        // Checking the staking amount
-        require(
-            _amount >= minStakingAmount,
-            "Amount must be greator than min staking amount."
-        );
-
         // Checking for blacklist
         require(!_isBlacklist(_msgSender()), "The address is in blacklist");
-
-        // Get staker from storage
-        Staker storage _staker = _getStaker(_msgSender());
 
         // // Check to see if the allowance mechanism is enabled by the staker
         require(
@@ -177,25 +178,44 @@ contract TokenStaking is Ownable, ReentrancyGuard {
             "Transfering funds failed."
         );
 
-        // Fill up staker information
-        _staker.lastInteractionAt = block.timestamp;
-        _staker.currentAmount += _amount;
+        // Get staker from storage
+        Staker storage _staker = _getStaker(_msgSender());
 
+        // Add staker address to staker index if not already
+        if (_staker.holderIndex == 0) {
+            _staker.holderIndex = _stakersIndex.length;
+
+            // Assert default values
+            _staker.startTime = 0;
+            _staker.isValid = false;
+            _staker.currentAmount = 0;
+            _staker.reward = 0;
+            _staker.totalReward = 0;
+
+            _stakersIndex.push(_msgSender());
+        }
+
+        // Fill up staker information
+        _staker.currentAmount += _amount;
+        if (!_staker.isValid) {
+            if (_staker.currentAmount >= minStakingAmount) {
+                _staker.startTime = block.timestamp;
+                _staker.isValid = true;
+            }
+        }
+
+        // Create a new txn
         StakeTransaction memory txn;
         txn.updatedAt = block.timestamp;
         txn.amount = _staker.currentAmount;
 
+        // Add txn to transactions list of the staker
         _staker.transactions.push(txn);
 
-        // Add holder to holder index
-        if (_staker.holderIndex == 0) {
-            _staker.holderIndex = _holders.length;
-            _holders.push(_msgSender());
-        }
-
+        // Increase total locked
         totalLocked += _amount;
 
-        // Emit staked event to announce successfull stake
+        // Emit staked event to announce successfull staking
         emit Staked(_msgSender(), _amount);
     }
 
@@ -213,11 +233,16 @@ contract TokenStaking is Ownable, ReentrancyGuard {
         // Check to see if staker amount is non-zero
         require(
             _staker.currentAmount >= _amount,
-            "Staker can't unstake more that current staked amount"
+            "Staker can't unstake more than current staked amount"
         );
 
-        _staker.lastInteractionAt = block.timestamp;
         _staker.currentAmount -= _amount;
+        if (_staker.isValid) {
+            if (_staker.currentAmount < minStakingAmount) {
+                _staker.startTime = 0;
+                _staker.isValid = false;
+            }
+        }
 
         StakeTransaction memory txn;
         txn.updatedAt = block.timestamp;
@@ -225,13 +250,14 @@ contract TokenStaking is Ownable, ReentrancyGuard {
 
         _staker.transactions.push(txn);
 
+        // Decrease locked amount
+        totalLocked -= _amount;
+
         // Check to see if transfer is successfull
         require(
             _token.transfer(_msgSender(), _amount),
             "Unstaking failed. Couldn't transfer funds to the sender."
         );
-
-        totalLocked -= _amount;
 
         emit Unstaked(_msgSender(), _amount);
     }
@@ -239,8 +265,9 @@ contract TokenStaking is Ownable, ReentrancyGuard {
     /**
      * @dev Withdraws specified amount of staked amount, transfer tokens to sender
      * @param _amount | the amount of token to withdraw in token unit e.g. 200 * 10**18
+     * @param _to | the address to which reward will be transferred
      */
-    function claimReward(uint256 _amount) external nonReentrant {
+    function claimReward(uint256 _amount, address _to) external nonReentrant {
         // Get the staker from storage
         Staker storage _staker = _getStaker(_msgSender());
 
@@ -250,32 +277,53 @@ contract TokenStaking is Ownable, ReentrancyGuard {
             "Amount must be less that or equal to reward."
         );
 
-        // Check to see if transfer is successfull
-        require(
-            _token.transfer(_msgSender(), _amount),
-            "Unstaking failed. Couldn't transfer funds to the sender."
-        );
-
         _staker.reward -= _amount;
         totalClaimed += _amount;
 
-        emit Claimed(_msgSender(), _amount);
+        // Check to see if transfer is successfull
+        require(
+            _token.transfer(_to, _amount),
+            "Unstaking failed. Couldn't transfer funds to the sender."
+        );
+
+        emit Claimed(_to, _amount);
     }
 
     /**
      * @dev Gets sender current staked amount
      */
-    function getMyStakedAmount() external view returns (uint256) {
-        Staker storage _staker = _getStaker(_msgSender());
+    function getMyCurrentStakedAmount() external view returns (uint256) {
+        Staker memory _staker = _getStaker(_msgSender());
 
         return _staker.currentAmount;
+    }
+
+    /**
+     * @dev Gets staker staked amont at specified time
+     * @param at | the time to return staked amount at
+     */
+    function getMyStakedAmount(uint256 at) external view returns (uint256) {
+        Staker memory _staker = _getStaker(_msgSender());
+
+        return _getAmountAt(_staker, at);
+    }
+
+    /**
+     * @dev Gets the validity status of the staking.
+     */
+    function getMyStakingValidity() external view returns (bool) {
+        Staker memory _staker = _getStaker(_msgSender());
+
+        return _staker.isValid;
     }
 
     /**
      * @dev Gets staker start timestamp
      */
     function getMyStakingStartTime() external view returns (uint256) {
-        uint256 startTime = _getStakerStartTime(_msgSender());
+        Staker memory _staker = _getStaker(_msgSender());
+
+        uint256 startTime = _getStakerStartTime(_staker);
         return startTime;
     }
 
@@ -283,9 +331,9 @@ contract TokenStaking is Ownable, ReentrancyGuard {
      * @dev Gets staker staking time elapsed in seconds
      */
     function getMyStakingTimeElapsed() external view returns (uint256) {
-        uint256 startTime = _getStakerStartTime(_msgSender());
+        Staker memory _staker = _getStaker(_msgSender());
 
-        uint256 timeElapsed = block.timestamp - startTime;
+        uint256 timeElapsed = _getStakerTimeElapsed(_staker);
         return timeElapsed;
     }
 
@@ -293,44 +341,48 @@ contract TokenStaking is Ownable, ReentrancyGuard {
      * @dev Get the staker distributed profit from staking tokens
      */
     function getMyStakingProfit() external view returns (uint256) {
-        Staker storage staker = _getStaker(_msgSender());
+        Staker memory _staker = _getStaker(_msgSender());
 
-        return staker.reward;
+        return _staker.reward;
+    }
+
+    /**
+     * @dev Get the staker distributed profit from staking tokens
+     */
+    function getMyStakingTotalProfit() external view returns (uint256) {
+        Staker memory _staker = _getStaker(_msgSender());
+
+        return _staker.totalReward;
     }
 
     /**
      * @dev Calculate staker daily average
      */
     function getMyAverage() external view returns (uint256) {
+        Staker memory _staker = _getStaker(_msgSender());
         uint256 _since = block.timestamp - rollingDay;
-        return _getAverage(_msgSender(), _since);
-    }
 
-    /**
-     * @dev Get staker staked amont at specified time
-     * @param at | the time t return staked amount at
-     */
-    function getMyStakedAmount(uint256 at) external view returns (uint256) {
-        return _getAmountAt(_msgSender(), at);
+        return _getAverage(_staker, _since);
     }
 
     ///////////////////////// PRIVATE /////////////////////////
     /**
      * @dev Gets staker start time
-     * @param _stakerAddress | the address of staker
+     * @param _staker | the staker
      */
     function _getStakerStartTime(
-        address _stakerAddress
+        Staker memory _staker
+    ) private pure returns (uint256) {
+        return _staker.startTime;
+    }
+
+    function _getStakerTimeElapsed(
+        Staker memory _staker
     ) private view returns (uint256) {
-        Staker storage _staker = _getStaker(_stakerAddress);
-
-        uint256 startTime = 0;
-        if (_staker.transactions.length != 0) {
-            StakeTransaction memory txn = _staker.transactions[0];
-            startTime = txn.updatedAt;
+        if (_staker.startTime == 0) {
+            return 0;
         }
-
-        return startTime;
+        return block.timestamp - _staker.startTime;
     }
 
     /**
@@ -349,14 +401,13 @@ contract TokenStaking is Ownable, ReentrancyGuard {
 
     /**
      * @dev Calculating average amount from a specified time til now
+     * @param since | start time to start calculating average from
      */
     function _getAverage(
-        address _stakerAddress,
+        Staker memory _staker,
         uint256 since
     ) private view returns (uint256) {
-        Staker memory _staker = _getStaker(_stakerAddress);
-
-        uint256 startBalance = _getAmountAt(_stakerAddress, since);
+        uint256 startBalance = _getAmountAt(_staker, since);
         if (startBalance == 0) {
             return 0;
         }
@@ -389,11 +440,9 @@ contract TokenStaking is Ownable, ReentrancyGuard {
      * @dev Get the staked amount of a staker at a specified time
      */
     function _getAmountAt(
-        address _stakerAddress,
+        Staker memory _staker,
         uint256 at
-    ) private view returns (uint256) {
-        Staker storage _staker = _getStaker(_stakerAddress);
-
+    ) private pure returns (uint256) {
         uint256 amount = 0;
         for (uint256 i = 0; i < _staker.transactions.length; i++) {
             StakeTransaction memory txn = _staker.transactions[i];
@@ -425,14 +474,23 @@ contract TokenStaking is Ownable, ReentrancyGuard {
      * @param _since | start time for calculations
      */
     function _distributeReward(uint256 _since) private {
-        uint256 totalAverages = _calculateTotalAverages(_since);
+        uint256 totalAverages = _calculateTotalRates(_since);
         uint256 totalAmount = 0;
-        for (uint256 i; i < _holders.length; i++) {
-            if (_holders[i] == address(0x0)) {
+        for (uint256 i; i < _stakersIndex.length; i++) {
+            if (_stakersIndex[i] == address(0x0)) {
                 continue;
             }
 
-            uint256 average = _getAverage(_holders[i], _since);
+            Staker storage _staker = _getStaker(_stakersIndex[i]);
+            if (!_staker.isValid) {
+                continue;
+            }
+
+            if (_staker.startTime > _since) {
+                continue;
+            }
+
+            uint256 average = _getAverage(_staker, _since);
             if (average == 0) {
                 continue;
             }
@@ -440,8 +498,8 @@ contract TokenStaking is Ownable, ReentrancyGuard {
             uint256 reward = (rewardTreasury * average) / totalAverages;
             totalAmount += reward;
 
-            Staker storage staker = _getStaker(_holders[i]);
-            staker.reward += reward;
+            _staker.reward += reward;
+            _staker.totalReward += reward;
         }
 
         rewardTreasury -= totalAmount;
@@ -449,26 +507,35 @@ contract TokenStaking is Ownable, ReentrancyGuard {
     }
 
     /**
-     * @dev Calculates reward
-     * @param _since | start time for calculating reward
+     * @dev Calculates total rates of eligible stakers
+     * @param _since | start time for calculating total rates
      */
-    function _calculateTotalAverages(
+    function _calculateTotalRates(
         uint256 _since
     ) private view returns (uint256) {
-        uint256 totalAverages;
-        for (uint256 i = 0; i < _holders.length; i++) {
-            if (_holders[i] == address(0x0)) {
+        uint256 totalRates;
+        for (uint256 i = 0; i < _stakersIndex.length; i++) {
+            if (_stakersIndex[i] == address(0x0)) {
                 continue;
             }
 
-            uint256 average = _getAverage(_holders[i], _since);
+            Staker memory _staker = _getStaker(_stakersIndex[i]);
+            if (!_staker.isValid) {
+                continue;
+            }
+
+            if (_staker.startTime > _since) {
+                continue;
+            }
+
+            uint256 average = _getAverage(_staker, _since);
             if (average == 0) {
                 continue;
             }
 
-            totalAverages += average;
+            totalRates += average;
         }
 
-        return totalAverages;
+        return totalRates;
     }
 }
