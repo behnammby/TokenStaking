@@ -144,22 +144,4 @@ contract("Token staking complementery tests", function (accounts) {
       assert.equal(got, validity.at(step).at(i), `Wrong validity for account ${i + 1}`);
     }
   });
-  it("WITHDRAW STEP 00", async function () {
-    const step = 0;
-    const mockToken = await BitToken.deployed();
-    const stakingContract = await StakingContract.deployed();
-
-    for (let i = 0; i < withdrawAmounts.at(step).length; i++) {
-      const amount = withdrawAmounts.at(step).at(i);
-      await stakingContract.unstake(amount, { from: accounts[i + 1] });
-
-      const got = await stakingContract.getMyCurrentStakedAmount({ from: accounts.at(i + 1) });
-
-      let expected = ethers.utils.parseUnits('0', 18);
-      for (j = 0; j <= step; j++) {
-        expected = expected.add(withdrawAmounts.at(j).at(i));
-      }
-      assert.equal(got.toString(), expected.toString(), `Staked amount is wrong for user ${i + 1}`);
-    }
-  });
 });

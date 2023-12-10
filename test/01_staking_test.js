@@ -261,118 +261,84 @@ contract("Token staking primary tests", function (accounts) {
 	// 	assert.equal(got.toString(), expected.toString(), "Couldn't calculate average correctly");
 	// });
 
-	// it("should revert change settings by none admins", async function () {
-	// 	const stakingContract = await StakingContract.deployed();
+	it("should revert change settings by none admins", async function () {
+		const stakingContract = await StakingContract.deployed();
 
-	// 	catchRevert(stakingContract.setRollingDay(5 * 24 * 60 * 60, { from: accounts[1] }));
-	// 	catchRevert(stakingContract.setMinStakingAmount(ethers.utils.parseUnits('400', 18), { from: accounts[1] }));
-	// 	catchRevert(stakingContract.addToBlacklist(accounts[0], { from: accounts[1] }));
-	// 	catchRevert(stakingContract.removeFromBlacklist(accounts[0], { from: accounts[1] }));
-	// });
+		catchRevert(stakingContract.setRollingDay(5 * 24 * 60 * 60, { from: accounts[1] }));
+		catchRevert(stakingContract.setMinStakingAmount(ethers.utils.parseUnits('400', 18), { from: accounts[1] }));
+		catchRevert(stakingContract.addToBlacklist(accounts[0], { from: accounts[1] }));
+		catchRevert(stakingContract.removeFromBlacklist(accounts[0], { from: accounts[1] }));
+	});
 
-	// it("should change rolling day", async function () {
-	// 	const stakingContract = await StakingContract.deployed();
+	it("should change rolling day", async function () {
+		const stakingContract = await StakingContract.deployed();
 
-	// 	const newVal = 5 * 24 * 60 * 60;
-	// 	await stakingContract.setRollingDay(newVal, { from: accounts[0] });
+		const newVal = 5 * 24 * 60 * 60;
+		await stakingContract.setRollingDay(newVal, { from: accounts[0] });
 
-	// 	const got = await stakingContract.rollingDay();
-	// 	const expected = newVal;
+		const got = await stakingContract.rollingDay();
+		const expected = newVal;
 
-	// 	assert.equal(got.toString(), expected.toString(), "Rolling day isn't set correctly");
-	// });
+		assert.equal(got.toString(), expected.toString(), "Rolling day isn't set correctly");
+	});
 
-	// it("should change min staking amount", async function () {
-	// 	const stakingContract = await StakingContract.deployed();
+	it("should change min staking amount", async function () {
+		const stakingContract = await StakingContract.deployed();
 
-	// 	const newVal = ethers.utils.parseUnits('400', 18);
-	// 	await stakingContract.setMinStakingAmount(newVal, { from: accounts[0] });
+		const newVal = ethers.utils.parseUnits('400', 18);
+		await stakingContract.setMinStakingAmount(newVal, { from: accounts[0] });
 
-	// 	const got = await stakingContract.minStakingAmount();
-	// 	const expected = newVal;
+		const got = await stakingContract.minStakingAmount();
+		const expected = newVal;
 
-	// 	assert.equal(got.toString(), expected.toString(), "Min staking amount isn't set correctly");
-	// });
+		assert.equal(got.toString(), expected.toString(), "Min staking amount isn't set correctly");
+	});
 
-	// it("should add an address to blacklist", async function () {
-	// 	const stakingContract = await StakingContract.deployed();
+	it("should add an address to blacklist", async function () {
+		const stakingContract = await StakingContract.deployed();
 
-	// 	await stakingContract.addToBlacklist(accounts[1], { from: accounts[0] });
+		await stakingContract.addToBlacklist(accounts[1], { from: accounts[0] });
 
-	// 	const result = await stakingContract.getBlacklist({ from: accounts[0] });
-	// 	console.debug('    Blacklist:', result);
+		const result = await stakingContract.getBlacklist({ from: accounts[0] });
+		console.debug('    Blacklist:', result);
 
-	// 	assert.notEqual(result.indexOf(accounts[1]), -1, "Couldn't add address to blacklist");
-	// });
+		assert.notEqual(result.indexOf(accounts[1]), -1, "Couldn't add address to blacklist");
+	});
 
-	// it("should revert staking from accounts[1] since is blacklisted", async function () {
-	// 	const stakingContract = await StakingContract.deployed();
+	it("should revert staking from accounts[1] since is blacklisted", async function () {
+		const stakingContract = await StakingContract.deployed();
 
-	// 	let amount = ethers.utils.parseUnits('500', 18);
-	// 	catchRevert(stakingContract.stake(amount, { from: accounts[1] }));
-	// });
+		let amount = ethers.utils.parseUnits('500', 18);
+		catchRevert(stakingContract.stake(amount, { from: accounts[1] }));
+	});
 
-	// it("should remove an address from blacklist", async function () {
-	// 	const stakingContract = await StakingContract.deployed();
+	it("should remove an address from blacklist", async function () {
+		const stakingContract = await StakingContract.deployed();
 
-	// 	await stakingContract.removeFromBlacklist(accounts[1], { from: accounts[0] });
+		await stakingContract.removeFromBlacklist(accounts[1], { from: accounts[0] });
 
-	// 	const result = await stakingContract.getBlacklist({ from: accounts[0] });
-	// 	console.debug('    Blacklist:', result);
+		const result = await stakingContract.getBlacklist({ from: accounts[0] });
+		console.debug('    Blacklist:', result);
 
-	// 	assert.equal(result.indexOf(accounts[1]), -1, "Couldn't remove address to blacklist");
-	// });
+		assert.equal(result.indexOf(accounts[1]), -1, "Couldn't remove address to blacklist");
+	});
 
-	// it("should add reward", async function () {
-	// 	const mockToken = await BitToken.deployed();
-	// 	const stakingContract = await StakingContract.deployed();
+	it("should add reward", async function () {
+		const mockToken = await BitToken.deployed();
+		const stakingContract = await StakingContract.deployed();
 
-	// 	const oldBalance = await mockToken.balanceOf(stakingContract.address);
+		const oldBalance = await mockToken.balanceOf(stakingContract.address);
 
-	// 	const amount = ethers.utils.parseUnits('500', 18);
-	// 	await mockToken.approve(stakingContract.address, amount);
-	// 	await stakingContract.addReward(amount);
+		const amount = ethers.utils.parseUnits('500', 18);
+		await mockToken.approve(stakingContract.address, amount);
+		await stakingContract.addReward(amount);
 
-	// 	const newBalance = await mockToken.balanceOf(stakingContract.address);
+		const newBalance = await mockToken.balanceOf(stakingContract.address);
 
-	// 	const got = await stakingContract.rewardTreasury();
-	// 	const expected = amount;
+		const got = await stakingContract.rewardTreasury();
+		const expected = amount;
 
-	// 	assert.equal(newBalance.toString(), amount.add(oldBalance.toString()).toString(), "Token balance of staking contract isn't increased.")
-	// 	assert.equal(got.toString(), expected.toString(), "Reward treasury isn't increased successfully");
-	// });
-
-	// it("should calculate total averages", async function () {
-	// 	const stakingContract = await StakingContract.deployed();
-
-	// 	const got = await stakingContract.getTotalAverages({ from: accounts[0] });
-
-	// 	const expected = ethers.utils.parseUnits('1500', 18);
-
-	// 	assert.equal(got.toString(), expected.toString(), "Couldn't calculate total averages");
-	// });
-
-	// it("should distribute reward", async function () {
-	// 	const stakingContract = await StakingContract.deployed();
-
-	// 	await stakingContract.distributeReward({ from: accounts[0] });
-
-	// 	const got1 = await stakingContract.getMyStakingProfit({ from: accounts[1] });
-	// 	const got2 = await stakingContract.getMyStakingProfit({ from: accounts[2] });
-
-	// 	assert.equal(got1.toString(), '166666666666666666666');
-	// 	assert.equal(got2.toString(), '333333333333333333333');
-	// });
-
-	// it("should claim reward", async function () {
-	// 	const mockToken = await BitToken.deployed();
-	// 	const stakingContract = await StakingContract.deployed();
-
-
-	// 	const amount = BigInt('166666666666666666666');
-	// 	await stakingContract.claimReward(amount, { from: accounts[1] });
-
-	// 	const got = await mockToken.balanceOf(accounts[1]);
-	// 	assert.equal(got.toString(), '666666666666666666666');
-	// });
+		assert.equal(newBalance.toString(), amount.add(oldBalance.toString()).toString(), "Token balance of staking contract isn't increased.")
+		assert.equal(got.toString(), expected.toString(), "Reward treasury isn't increased successfully");
+	});
 });
