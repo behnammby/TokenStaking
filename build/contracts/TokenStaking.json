@@ -28300,12 +28300,12 @@
         }
       },
       "links": {},
-      "address": "0xF6F637B8f0Cfb0297b85337ecde420f3a5caa900",
-      "transactionHash": "0x51ecdd8ae40c9220da5feaaeb383ca36ac3be002c1972abea1b0a9dfb3802e86"
+      "address": "0x2cB16156B73f0760217266AD10C02CBf5C4ff6D7",
+      "transactionHash": "0x71444f899e886f8b263154e9a3881c49bf8bbc39cd348e522f5c1618689df790"
     }
   },
   "schemaVersion": "3.4.16",
-  "updatedAt": "2023-12-10T17:45:51.758Z",
+  "updatedAt": "2023-12-10T18:08:22.054Z",
   "networkType": "ethereum",
   "devdoc": {
     "details": "An smart contract for staking any ERC20 token",
